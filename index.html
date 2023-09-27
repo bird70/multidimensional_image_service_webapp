@@ -1,0 +1,411 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>
+      NIWA-SCENZ ImageryLayer - server side raster function | Sample | ArcGIS
+      Maps SDK for JavaScript 4.27
+    </title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.27/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.27/"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      #selectorDiv {
+        padding: 0;
+        margin: 0;
+        /* height: 10%;
+        width: 100%; */
+      }
+    </style>
+
+    <script>
+      require([
+        "esri/Map",
+        "esri/WebMap",
+        "esri/portal/Portal",
+        "esri/portal/PortalItem",
+        "esri/views/MapView",
+        "esri/layers/ImageryLayer",
+        "esri/layers/support/RasterFunction",
+        "esri/layers/support/MosaicRule",
+        "esri/layers/support/DimensionalDefinition",
+        "esri/widgets/Legend",
+        "esri/widgets/Popup",
+        "esri/widgets/LayerList",
+        "esri/widgets/Swipe",
+      ], (
+        Map,
+        WebMap,
+        Portal,
+        PortalItem,
+        MapView,
+        ImageryLayer,
+        RasterFunction,
+        MosaicRule,
+        DimensionalDefinition,
+        Legend,
+        Popup,
+        LayerList,
+        Swipe
+      ) => {
+        let portal_NIWA = new Portal({
+          url: "https://gis.niwa.co.nz/portal",
+        });
+
+        const map = new WebMap({
+          portalItem: {
+            portal: portal_NIWA,
+            // autocasts as new PortalItem()
+            id: "47bb0fccb541414b8df61ca7c30d823c", //webmerc new (GIS.niwa)
+          },
+        });
+        /***************************************
+         * Match 'parameter' with Service Name
+         ***************************************/
+
+        const seriesDict = {
+          _ANOMALY: "Anomalies",
+          _CLIMATOLOGY: "Climatologies",
+          _TIMESERIES: "Timeseries",
+        };
+
+        /***************************************
+         * Set up popup template of image layer
+         **************************************/
+
+        const imagePopupTemplate = {
+          // autocasts as new PopupTemplate()
+          title: "NIWA SCENZ V3 - Derived from MODIS satellite data",
+          content: `
+            Rendered values: <b>{Raster.ServicePixelValue} </b>
+            <br>Original values: <b>{Raster.ItemPixelValue} </b>
+            `,
+        };
+
+        const imagePopupTemplateTEST = {
+          // autocasts as new PopupTemplate()
+          title: "NIWA SCENZ V3 (ANOMALY) - Derived from MODIS satellite data",
+          content: `
+            Rendered values: <b>{Raster.ServicePixelValue} </b>
+            <br>Original values: <b>{Raster.ItemPixelValue} </b>
+            `,
+        };
+
+        /*******************************************************************
+         * Create image layer with server defined raster function templates
+         ******************************************************************/
+        //  this works:
+        /*
+        https://gistest.niwa.co.nz/raster/rest/services/SCENZ/TEST_V3_All_CLIMATOLOGY_ref/ImageServer/exportImage?f=html&bbox=19795148.607905146%2C-4878592.607684354%2C19834590.114500243%2C-4853291.951321996&bboxSR=102100&imageSR=102100&size=1032%2C662&format=jpgpng&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22mosaicOperation%22%3A%22MT_LAST%22%2C%22sortField%22%3A%22StdTime%22%2C%22sortValue%22%3A%2201%2F01%2F1900%22%2C%22where%22%3A%22((UPPER(Variable)%20%3D%20%27CHL%27))%22%7D&renderingRule=%7B%22rasterFunction%22%3A%22CHL_Climatologies%22%7D
+         */
+
+        // Define the way overlapping images are mosaicked together
+        const mosaicRule = new MosaicRule({
+          ascending: true,
+          method: "attribute",
+          operation: "last",
+          where: "((UPPER(Variable) = 'ADET'))",
+          sortField: "StdTime",
+          sortValue: "01/01/1900",
+        });
+
+        mosaicRule.multidimensionalDefinition = [];
+        mosaicRule.multidimensionalDefinition.push(
+          new DimensionalDefinition({
+            variableName: "ADET",
+            dimensionName: "StdTime",
+            values: [1025481600000],
+            slice: true,
+          })
+        );
+
+        const serviceRFT = new RasterFunction({
+          functionName: "ADET_Climatologies",
+        });
+
+        const layer = new ImageryLayer({
+          url: "https://gis.niwa.co.nz/raster/rest/services/SCENZ/PROD_V3_All_CLIMATOLOGY_ref/ImageServer",
+          // url: "https://gistest.niwa.co.nz/raster/rest/services/SCENZ/TEST_V3_All_CLIMATOLOGY_ref/ImageServer",
+          rasterFunction: serviceRFT,
+          mosaicRule: mosaicRule,
+          popupTemplate: imagePopupTemplate,
+        });
+
+        const layer2 = new ImageryLayer({
+          // url: "https://gis.niwa.co.nz/raster/rest/services/SCENZ/PROD_V3_All_CLIMATOLOGY_ref/ImageServer",
+          url: "https://gistest.niwa.co.nz/raster/rest/services/SCENZ/TEST_V3_All_ANOMALY_ref/ImageServer",
+          // rasterFunction: serviceRFTselectedVar,
+          // view: view,
+          // mosaicRule: mosaicRuleSelectedVar,
+          popupTemplate: imagePopupTemplateTEST,
+        });
+        map.layers.add(layer2);
+
+        const dropdown_series = document.getElementById("series-dropdown");
+        dropdown_series.addEventListener("change", seriesResultClickHandler);
+
+        const dropdown = document.getElementById("variables-dropdown");
+        dropdown.addEventListener("change", variablesResultClickHandler);
+
+        const dropdown_months = document.getElementById("months-dropdown");
+        dropdown_months.addEventListener("change", monthsResultClickHandler);
+
+        const dropdown_years = document.getElementById("years-dropdown");
+        dropdown_years.addEventListener("change", yearsResultClickHandler);
+
+        // ***************************************************
+        // this function runs when user selects a variable
+        // shown in the dropdown list shown at the top of the app
+        // ***************************************************
+        function variablesResultClickHandler(event) {
+          const target = event.target;
+          const resultId = target.getAttribute("value");
+          const selectedValue = event.target.value;
+          const selectedMonth = dropdown_months.value;
+
+          const selectedYear = dropdown_years.value;
+          const selectedSeries = dropdown_series.value;
+          console.log(`Selected Series: ${selectedSeries}`);
+          // console.log(
+          //   `Selected Series Key/Value Equivalent: ${seriesDict["'"+selectedSeries+"'"]}`
+          // );
+
+          /*
+           * We want to use the selection to access both a service with Timeseries/Anomaly/CLimatology and
+           * a Raster Function template that uses a slightly different name with Timeseries/Anomalies/Climatologies.
+           * ==> Look them up in our pre-defined Dict/Object
+           */
+          console.log(
+            `Selected Series Key/Value Equivalent (2): ${seriesDict[selectedSeries]}`
+          );
+
+          console.log(`Selected value in my-dropdown: ${selectedValue}`);
+
+          console.log(`Selected Month in months-dropdown: ${selectedMonth}`);
+          console.log(`Selected Year in years-dropdown: ${selectedYear}`);
+          // graphics = event.target;
+
+          // const rc = selectedValue;
+          // Define the way overlapping images are mosaicked together
+          const mosaicRuleSelectedVar = new MosaicRule();
+          // const mosaicRuleSelectedVar = new MosaicRule({
+          //   ascending: true,
+          //   method: "attribute",
+          //   operation: "last",
+          //   where: "((UPPER(Variable) =  " + selectedValue + "))",
+          //   sortField: "StdTime",
+          //   sortValue: "01/01/1900",
+          // });
+          mosaicRuleSelectedVar.where =
+            "(UPPER(Variable) =  '" +
+            selectedValue +
+            "') AND (UPPER(Month) = '" +
+            selectedMonth +
+            "') AND (UPPER(Year) = '" +
+            selectedYear +
+            "')";
+          // mosaicRuleSelectedVar.multidimensionalDefinition = [];
+          // mosaicRuleSelectedVar.multidimensionalDefinition.push(
+          //   new DimensionalDefinition({
+          //     variableName: selectedValue,
+          //     dimensionName: "StdTime",
+          //     values: [1025481600000],
+          //     slice: true,
+          //   })
+          // );
+
+          // const serviceRFTselectedVar = new RasterFunction({
+          //   functionName: selectedValue + "_Climatologies",
+          // });
+
+          const serviceRFTselectedVar = new RasterFunction({
+            functionName: selectedValue + "_" + seriesDict[selectedSeries],
+          });
+
+          console.log(selectedValue + "_" + seriesDict[selectedSeries]);
+
+          layer.url =
+            "https://gis.niwa.co.nz/raster/rest/services/SCENZ/PROD_V3_All" +
+            selectedSeries +
+            "_ref/ImageServer";
+          layer.rasterFunction = serviceRFTselectedVar;
+          layer.mosaicRule = mosaicRuleSelectedVar;
+          layer.redraw();
+
+          console.log(layer.url);
+
+          // swipe.leadingLayers[layer2];
+
+          // // add the widget to the view
+          // view.ui.add(layer2);
+          // layer2.redraw();
+        }
+
+        // ***************************************************
+        // this function runs when user selects a Series
+        // shown in the dropdown list shown at the top of the app
+        // ***************************************************
+        function seriesResultClickHandler(event) {
+          const target = event.target;
+          const resultId1 = target.getAttribute("value");
+          const selectedSeries = event.target.value;
+          console.log(`Selected Series in series_dropdown: ${selectedSeries}`);
+        }
+
+        // ***************************************************
+        // this function runs when user selects a Month
+        // shown in the dropdown list shown at the top of the app
+        // ***************************************************
+        function monthsResultClickHandler(event) {
+          const target = event.target;
+          const resultId2 = target.getAttribute("value");
+          const selectedMonth = event.target.value;
+          console.log(`Selected value in my-dropdown: ${selectedMonth}`);
+        }
+
+        // ***************************************************
+        // this function runs when user selects a Year
+        // shown in the dropdown list shown at the top of the app
+        // ***************************************************
+        function yearsResultClickHandler(event) {
+          const target = event.target;
+          const resultId3 = target.getAttribute("value");
+          const selectedYear = event.target.value;
+          console.log(`Selected value in years-dropdown: ${selectedYear}`);
+        }
+        /*************************
+         * Add image layer to map
+         ************************/
+
+        // const map = new Map({
+        //   basemap: "hybrid",
+        //   layers: [layer],
+        // });
+        map.layers.add(layer);
+
+        // map.when(function () {
+        const view = new MapView({
+          container: "viewDiv",
+          map: map,
+          center: {
+            // autocasts as esri/geometry/Point
+            x: 177.8,
+            y: -39.7,
+            spatialReference: 4326,
+          },
+          zoom: 9,
+          popup: {
+            actions: [],
+          },
+        });
+        view.when(function () {
+          var layerList = new LayerList({
+            view: view,
+            position: 85,
+          });
+          view.ui.add(layerList, "top-right");
+
+          // create a new Swipe widget
+          const swipe = new Swipe({
+            leadingLayers: [layer],
+            trailingLayers: [layer2],
+            position: 35, // set position of widget to 65%
+            view: view,
+          });
+          // //
+          view.ui.add(swipe);
+
+          // });
+        });
+        // });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="selectorDiv">
+      <div>
+        Please choose a Series, the Month and the Year first, then update the
+        Variable Selection to modify the displayed layer.
+      </div>
+      <div>
+        <select id="series-dropdown">
+          <option value="_CLIMATOLOGY">Climatologies</option>
+          <option value="_TIMESERIES">Timeseries</option>
+          <option value="_ANOMALY">Anomalies</option>
+        </select>
+      </div>
+      <div>
+        <select id="months-dropdown">
+          <option value="01">January</option>
+          <option value="02">February</option>
+          <option value="03">March</option>
+          <option value="04">April</option>
+          <option value="05">May</option>
+          <option value="06">June</option>
+          <option value="07">July</option>
+          <option value="08">August</option>
+          <option value="09">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+        <select id="years-dropdown">
+          <option value="2002">2002</option>
+          <option value="2003">2003</option>
+          <option value="2004">2004</option>
+          <option value="2005">2005</option>
+          <option value="2006">2006</option>
+          <option value="2007">2007</option>
+          <option value="2008">2008</option>
+          <option value="2009">2009</option>
+          <option value="2010">2010</option>
+          <option value="2011">2011</option>
+          <option value="2012">2012</option>
+          <option value="2013">2013</option>
+          <option value="2014">2014</option>
+          <option value="2015">2015</option>
+          <option value="2016">2016</option>
+          <option value="2017">2017</option>
+          <option value="2018">2018</option>
+          <option value="2019">2019</option>
+          <option value="2020">2020</option>
+          <option value="2021">2021</option>
+          <option value="2022">2022</option>
+          <option value="2023">2023</option>
+        </select>
+      </div>
+      <div>
+        <select id="variables-dropdown">
+          <option value="ADET">ADET</option>
+          <option value="BBP">BBP</option>
+          <option value="CHL">CHL</option>
+          <option value="EBED">EBED</option>
+          <option value="HVIS">HVIS</option>
+          <option value="KPAR">KPAR</option>
+          <option value="PAR">PAR</option>
+          <option value="POB">POB</option>
+          <option value="SEC">SEC</option>
+          <option value="SST">SST</option>
+          <option value="TSS">TSS</option>
+        </select>
+      </div>
+    </div>
+    <div id="viewDiv"></div>
+  </body>
+</html>
